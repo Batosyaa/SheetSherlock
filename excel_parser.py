@@ -12,6 +12,7 @@ import time
 # Column names from config
 from config import (
     SHEET_ID,
+    SHEET_NAME,
     CREDS_PATH,
     COL_BIN,
     COL_NAME,
@@ -32,13 +33,23 @@ def _connect() -> gspread.Worksheet:
     creds = Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
     client = gspread.authorize(creds)
     spreadsheet = client.open_by_key(SHEET_ID)
-    return spreadsheet.sheet1
+    return spreadsheet.worksheet(SHEET_NAME)
  
  
 def _fetch_dataframe() -> pd.DataFrame:
     worksheet = _connect()
-    records = worksheet.get_all_records()
-    df = pd.DataFrame(records)
+    values = worksheet.get_all_values()
+    
+    if not values:
+        return pd.DataFrame()
+    
+    headers = values[0]
+    rows = values[1:]
+    
+    df = pd.DataFrame(rows, columns = headers)
+    df = df.loc[:, df.columns.str.strip() != ""] # Remove empty columns
+    df = df.dropna(how="all").reset_index(drop=True)
+    
     df[COL_BIN] = df[COL_BIN].astype(str).str.strip()
     return df
 

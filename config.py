@@ -5,6 +5,7 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 SHEET_ID = os.getenv("SHEET_ID")
 CREDS_PATH = os.getenv("CREDS_PATH", "credentials.json")
+SHEET_NAME = os.getenv("SHEET_NAME", "sheet1")
 
 
 COL_BIN = os.getenv("COL_BIN", "БИН")
