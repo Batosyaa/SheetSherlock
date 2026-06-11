@@ -145,8 +145,8 @@ CREDS_PATH=credentials.json
 # Column names — must match the header row in your sheet exactly
 COL_BIN=БИН
 COL_NAME=Наименование
-COL_RISK_CURR=Риск Q2 2026
-COL_RISK_PREV=Риск Q1 2026
+COL_RISK_CURR=степень риска 1 кв.2026
+COL_RISK_PREV=степень риска 4 кв.2025
 ```
 
 **Where to find the Sheet ID:**

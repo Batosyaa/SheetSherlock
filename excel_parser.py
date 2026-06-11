@@ -5,6 +5,7 @@ import logging
 from google.oauth2.service_account import Credentials
 from config import SHEET_ID, CREDS_PATH
 from gspread.exceptions import APIError, SpreadsheetNotFound
+import threading
 
 # For time caching the dataframe to avoid hitting Google Sheets API too often
 import time
@@ -27,6 +28,8 @@ _cache = {"df": None, "ts": 0}
 CACHE_TTL = 300 # 5 mins
 
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+
+_cache_lock = threading.Lock()
 
 # Functions to connect to Google Sheets and fetch data
 def _connect() -> gspread.Worksheet:
@@ -55,17 +58,19 @@ def _fetch_dataframe() -> pd.DataFrame:
 
 # Functions to manage the dataframe cache
 def get_dataframe() -> pd.DataFrame:
-    now = time.time()
-    if _cache["df"] is None or (now - _cache["timestamp"]) > CACHE_TTL:
-        logger.info("Cache expired or empty — fetching fresh data from Google Sheets.")
-        _cache["df"] = _fetch_dataframe()
-        _cache["timestamp"] = now
-    return _cache["df"]
+    now = time.monotonic()
+    
+    with _cache_lock:
+        if _cache["df"] is None or (now - _cache["ts"]) > CACHE_TTL:
+            logger.info("Cache expired or empty — fetching fresh data from Google Sheets.")
+            _cache["df"] = _fetch_dataframe()
+            _cache["ts"] = now
+        return _cache["df"]
  
  
 def invalidate_cache() -> None:
     _cache["df"] = None
-    _cache["timestamp"] = 0
+    _cache["ts"] = 0.0
     logger.info("Cache manually invalidated.")
     
 
@@ -83,7 +88,7 @@ def find_company(bin_query: str) -> pd.Series | None: # Main searching function
         logger.error(f"Google Sheets API error: {e}")
         raise
     except Exception as e:
-        logger.error(f"Unexpected error reading sheet: {e}")
+        logger.exception("Unexpected error reading sheet.")
         raise
  
     match = df[df[COL_BIN] == bin_query.strip()]
