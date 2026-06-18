@@ -14,6 +14,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from gspread.exceptions import APIError, SpreadsheetNotFound
+import pandas as pd
 
 import strings
 from excel_parser import find_company, get_profile, get_history
@@ -42,28 +43,20 @@ def _restart_keyboard() -> InlineKeyboardMarkup:
 
 # ── shared helpers ───────────────────────────────────────────────────────────
 
-async def _sheet_lookup(bin_number: str, context_label: str) -> "pd.Series | None | str":
-    """
-    Call find_company() with separated exception handling.
-    Returns:
-        pd.Series   — row found
-        None        — not found (clean miss)
-        "error"     — any sheet/network problem (already logged)
-    """
+_ERROR = object()
+
+async def _sheet_lookup(bin_number: str, context_label: str):
     try:
         return find_company(bin_number)
     except SpreadsheetNotFound:
-        # Configuration problem — worth a distinct log line.
         logger.error("[%s] Spreadsheet not found. Check SHEET_ID in .env.", context_label)
-        return "error"
+        return _ERROR          # ← sentinel, not string
     except APIError as e:
-        # Transient Google API failure.
         logger.error("[%s] Google Sheets API error: %s", context_label, e)
-        return "error"
+        return _ERROR
     except Exception:
-        # Anything else: log with full traceback so we can debug it.
         logger.exception("[%s] Unexpected error during sheet lookup.", context_label)
-        return "error"
+        return _ERROR
 
 
 # ── commands ─────────────────────────────────────────────────────────────────
@@ -96,10 +89,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
-    # FIX 2: separated exception handling via _sheet_lookup.
     result = await _sheet_lookup(text, context_label=f"message uid={user_id}")
 
-    if result == "error":
+    if result is _ERROR:
         await update.message.reply_text(
             strings.SHEET_ERROR, parse_mode=ParseMode.MARKDOWN_V2
         )
@@ -152,7 +144,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # FIX 2: same separated handling for callbacks.
         result = await _sheet_lookup(bin_number, context_label=f"history uid={user_id}")
 
-        if result == "error":
+        if result is _ERROR:
             await query.message.reply_text(
                 strings.SHEET_ERROR, parse_mode=ParseMode.MARKDOWN_V2
             )
