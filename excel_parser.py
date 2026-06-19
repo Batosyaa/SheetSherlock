@@ -6,6 +6,7 @@ from google.oauth2.service_account import Credentials
 from config import SHEET_ID, CREDS_PATH
 from gspread.exceptions import APIError, SpreadsheetNotFound
 import threading
+import json, os
 
 # For time caching the dataframe to avoid hitting Google Sheets API too often
 import time
@@ -33,10 +34,16 @@ _cache_lock = threading.Lock()
 
 # Functions to connect to Google Sheets and fetch data
 def _connect() -> gspread.Worksheet:
-    creds = Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
+    creds_json = os.getenv("GOOGLE_CREDS_JSON")
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
+    else:
+        # Fallback for local dev with credentials.json
+        creds = Credentials.from_service_account_file(CREDS_PATH, scopes=SCOPES)
+    
     client = gspread.authorize(creds)
-    spreadsheet = client.open_by_key(SHEET_ID)
-    return spreadsheet.worksheet(SHEET_NAME)
+    return client.open_by_key(SHEET_ID).worksheet(SHEET_NAME)
  
  
 def _fetch_dataframe() -> pd.DataFrame:
@@ -50,7 +57,8 @@ def _fetch_dataframe() -> pd.DataFrame:
     rows = values[1:]
     
     df = pd.DataFrame(rows, columns = headers)
-    df = df.loc[:, df.columns.str.strip() != ""] # Remove empty columns
+    df.columns = df.columns.str.strip()
+    df = df.loc[:, df.columns.str.strip() != ""]
     df = df.dropna(how="all").reset_index(drop=True)
     
     df[COL_BIN] = df[COL_BIN].astype(str).str.strip()
@@ -65,6 +73,8 @@ def get_dataframe() -> pd.DataFrame:
             logger.info("Cache expired or empty — fetching fresh data from Google Sheets.")
             _cache["df"] = _fetch_dataframe()
             _cache["ts"] = now
+        
+        logger.info("Sheet columns list: %s", list(_cache["df"].columns))
         return _cache["df"]
  
  
