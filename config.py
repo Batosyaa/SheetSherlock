@@ -10,6 +10,7 @@ SHEET_NAME = os.getenv("SHEET_NAME", "Лист1")
 
 COL_BIN = os.getenv("COL_BIN", "БИН")
 COL_NAME = os.getenv("COL_NAME", "Проект")
+COL_DESCRIPTION = os.getenv("COL_DESCRIPTION", "Описание проекта")
 COL_RISK_CURR = os.getenv("COL_RISK_CURR", "степень риска 1 кв.2026")
 COL_RISK_PREV = os.getenv("COL_RISK_PREV", "степень риска 4 кв.2025")
 

@@ -20,6 +20,7 @@ from config import (
     COL_NAME,
     COL_RISK_CURR,
     COL_RISK_PREV,
+    COL_DESCRIPTION,
     QUARTER_COLS
 )
 
@@ -111,9 +112,11 @@ def find_company(bin_query: str) -> pd.Series | None: # Main searching function
 
 # Extracting data
 def get_profile(row: pd.Series) -> dict:
+    description = str(row[COL_DESCRIPTION]) if COL_DESCRIPTION in row.index else "Описание недоступно"
     return {
         "name": str(row[COL_NAME]),
         "bin": str(row[COL_BIN]),
+        "decription": description if description.lower() not in ("nan", "") else "Описание недоступно",
         "risk_curr": str(row[COL_RISK_CURR]),
         "risk_prev": str(row[COL_RISK_PREV])
     }
@@ -129,6 +132,3 @@ def get_history(row: pd.Series) -> list[tuple[str, str]]:
             continue
         history.append((col, str(value).strip()))
     return history
-
-# Future features could include:
-# - More advanced search (by name, partial BIN, etc.)

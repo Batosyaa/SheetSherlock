@@ -16,9 +16,12 @@ HELP = (
 PROFILE = (
     "Наименование компании: *{name}*\n"
     "БИН: `{bin}`\n\n"
+    "{description}\n\n"
     "Риск \\(текущий квартал\\): {risk_curr_icon} *{risk_curr}*\n"
     "Риск \\(прошлый квартал\\): {risk_prev_icon} *{risk_prev}*"
 )
+
+
 
 HISTORY_HEADER = "*История рисков — {name}*\n"
 HISTORY_ROW    = "{icon} {quarter}: *{risk}*"

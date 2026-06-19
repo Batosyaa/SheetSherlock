@@ -104,9 +104,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     profile = get_profile(result)
+    
+    description_line = f"📝 {_escape(profile['description'])}\n\n" if profile["description"] else ""
+    
     message = strings.PROFILE.format(
         name=_escape(profile["name"]),
         bin=profile["bin"],
+        description=description_line,
         risk_curr=_escape(profile["risk_curr"]),
         risk_curr_icon=strings.risk_icon(profile["risk_curr"]),
         risk_prev=_escape(profile["risk_prev"]),
