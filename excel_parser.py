@@ -119,3 +119,6 @@ def get_history(row: pd.Series) -> list[tuple[str, str]]:
             continue
         history.append((col, str(value).strip()))
     return history
+
+# Future features could include:
+# - More advanced search (by name, partial BIN, etc.)
