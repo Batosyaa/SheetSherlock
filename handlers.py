@@ -105,7 +105,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     profile = get_profile(result)
     
-    description_line = f"📝 {_escape(profile['description'])}\n\n" if profile["description"] else ""
+    description_line = f"📝 {_escape(profile['description'])}" if profile["description"] else ""
     
     message = strings.PROFILE.format(
         name=_escape(profile["name"]),

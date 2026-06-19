@@ -116,7 +116,7 @@ def get_profile(row: pd.Series) -> dict:
     return {
         "name": str(row[COL_NAME]),
         "bin": str(row[COL_BIN]),
-        "decription": description if description.lower() not in ("nan", "") else "Описание недоступно",
+        "description": description if description.lower() not in ("nan", "") else "Описание недоступно",
         "risk_curr": str(row[COL_RISK_CURR]),
         "risk_prev": str(row[COL_RISK_PREV])
     }
