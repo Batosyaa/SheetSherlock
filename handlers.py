@@ -17,6 +17,9 @@ from gspread.exceptions import APIError, SpreadsheetNotFound
 import pandas as pd
 
 import strings
+from audit import ACTION_QUERY_BIN, check_query_anomaly, log_event
+from auth import require_auth
+from config import ADMIN_ID
 from excel_parser import find_company, get_profile, get_history
 from rate_limiter import is_rate_limited   # FIX 1
 
@@ -71,6 +74,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── message handler ──────────────────────────────────────────────────────────
 
+@require_auth
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
 
@@ -104,16 +108,32 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     profile = get_profile(result)
+
+    try:
+        log_event(user_id, ACTION_QUERY_BIN, detail=profile["bin"])
+        anomaly_count = check_query_anomaly(user_id)
+        if anomaly_count is not None:
+            await context.bot.send_message(
+                chat_id=ADMIN_ID,
+                text=strings.ADMIN_ANOMALY_ALERT.format(
+                    user_id=user_id,
+                    count=anomaly_count,
+                    bin=profile["bin"],
+                ),
+                parse_mode=ParseMode.MARKDOWN_V2,
+            )
+    except Exception:
+        logger.exception("Failed to audit successful BIN query for user_id=%s.", user_id)
     
-    description_line = f"📝 {_escape(profile['description'])}" if profile["description"] else ""
+    description_line = f"📝 {strings.escape(profile['description'])}" if profile["description"] else ""
     
     message = strings.PROFILE.format(
-        name=_escape(profile["name"]),
+        name=strings.escape(profile["name"]),
         bin=profile["bin"],
         description=description_line,
-        risk_curr=_escape(profile["risk_curr"]),
+        risk_curr=strings.escape(profile["risk_curr"]),
         risk_curr_icon=strings.risk_icon(profile["risk_curr"]),
-        risk_prev=_escape(profile["risk_prev"]),
+        risk_prev=strings.escape(profile["risk_prev"]),
         risk_prev_icon=strings.risk_icon(profile["risk_prev"]),
     )
     await update.message.reply_text(
@@ -125,6 +145,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 # ── callback handler ─────────────────────────────────────────────────────────
 
+@require_auth
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
     await query.answer()
@@ -172,12 +193,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             )
             return
 
-        lines = [strings.HISTORY_HEADER.format(name=_escape(profile["name"]))]
+        lines = [strings.HISTORY_HEADER.format(name=strings.escape(profile["name"]))]
         for quarter, risk in history:
             lines.append(strings.HISTORY_ROW.format(
                 icon=strings.risk_icon(risk),
-                quarter=_escape(quarter),
-                risk=_escape(risk),
+                quarter=strings.escape(quarter),
+                risk=strings.escape(risk),
             ))
 
         await query.message.reply_text(
@@ -187,12 +208,3 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         )
 
 
-# ── MarkdownV2 escaping ──────────────────────────────────────────────────────
-
-_ESCAPE_CHARS = r"\_*[]()~`>#+-=|{}.!"
-
-def _escape(text: str) -> str:
-    """Escape special characters for Telegram MarkdownV2."""
-    for ch in _ESCAPE_CHARS:
-        text = text.replace(ch, f"\\{ch}")
-    return text

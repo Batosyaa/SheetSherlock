@@ -9,6 +9,7 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN
+from admin import handle_admin_callback
 from db import init_db
 from handlers import cmd_start, cmd_help, handle_message, handle_callback
 
@@ -30,6 +31,7 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help",  cmd_help))
+    app.add_handler(CallbackQueryHandler(handle_admin_callback, pattern=r"^admin:(approve|reject):"))
     app.add_handler(CallbackQueryHandler(handle_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
