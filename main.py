@@ -9,19 +9,23 @@ from telegram.ext import (
 )
 
 from config import BOT_TOKEN
+from db import init_db
 from handlers import cmd_start, cmd_help, handle_message, handle_callback
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
 )
+
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
+    init_db()
+    
     if not BOT_TOKEN:
         raise ValueError("BOT_TOKEN is not set. Check your .env file.")
-
+    
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))

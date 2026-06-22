@@ -1,6 +1,7 @@
 # Secrets — never upload these
 .env
 credentials.json
+sherlock.db
 
 # Python virtual environment
 venv/
