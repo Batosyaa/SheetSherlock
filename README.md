@@ -43,9 +43,13 @@ Data is fetched from Google Sheets via the Sheets API using a service account an
 sheetsherlock/
 ├── main.py            # Entry point — builds the app and registers handlers
 ├── handlers.py        # All Telegram handler functions
-├── sheet_parser.py    # Google Sheets connection, caching, search, data extraction
+├── excel_parser.py    # Google Sheets connection, caching, search, data extraction
 ├── strings.py         # All bot message templates and risk icon mapping
 ├── config.py          # Loads environment variables from .env
+├── db.py              # Manages db initialization (init_db()) and handles a single write lock to prevent SQLite write contention.
+├── auth.py            # Contains user registry and @require_auth decorator for access control
+├── audit.py           # Handles log_event() to track successfull BIN queries and monitor for anomaly alerts
+├── admin.py           # Registers administrative handlers and commands
 ├── .env               # Secrets and column config (never commit to Git)
 ├── credentials.json   # Google service account key (never commit to Git)
 ├── test_parser.py     # Unit tests for sheet_parser
@@ -138,6 +142,12 @@ Create a `.env` file in the project root:
 # Telegram
 BOT_TOKEN=123456789:AABBCCxxxxxxxxxxx
 
+# Admin
+ADMIN_ID = Your_Telegram_ID — **Required**. config.py is configured to raise a ValueError at startup if this is missing
+
+# Database
+DB_PATH = sherlock.db — Ensure sherlock.db is added to your .gitignore file so it is not committed to version control
+
 # Google Sheets
 SHEET_ID=1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms
 CREDS_PATH=credentials.json
@@ -158,6 +168,24 @@ https://docs.google.com/spreadsheets/d/▶ 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74Og
 **Column names** must match your sheet's header row character-for-character, including spaces and capitalisation. If the column is called `БИН ` with a trailing space, add the space.
 
 > Each quarter, update `COL_RISK_CURR` and `COL_RISK_PREV` in `.env` and restart the bot. No code changes needed.
+
+---
+
+## Authentication & Access Flow
+
+- The bot is now invite-only by design.
+- If an approved user shares the bot link, unknown users will automatically be routed through a pending flow.
+- Non-admin users receive pending, approved, or rejected messages, while the admin receives a notification to review new requests.
+
+## Admin Commands
+
+Administrative commands are strictly locked to the user matching the ADMIN_ID.
+
+/listusers — Returns a list of all registered users.
+/revokeuser — Revokes bot access for a specific user.
+/auditlog — Retrieves the audit logs.
+
+Additionally, an invalidate_auth_cache() endpoint is available via admin commands to force a refresh if cache desync occurs after a manual database edit.
 
 ---
 
@@ -313,3 +341,9 @@ creds = Credentials.from_service_account_info(creds_dict, scopes=SCOPES)
 **Bot stops responding after a while**
 - This usually means the process crashed; systemd will restart it automatically within 5 seconds
 - Check logs for the error: `sudo journalctl -u sheetsherlock -n 50`
+
+**Lost Admin Access**
+If the admisitrator loses their Telegram account, set a new ADMIN_ID int .env file and restart the application
+
+**Token Security**
+Httpx URL logging has been suppressed to prevent the Bot token from leaking in the logs.
