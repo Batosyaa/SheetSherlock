@@ -68,6 +68,35 @@ def get_user(user_id: int) -> dict[str, Any] | None:
         conn.close()
 
 
+def list_users(status: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    conn = get_connection()
+    try:
+        if status:
+            rows = conn.execute(
+                """
+                SELECT user_id, first_name, username, status, requested_at, approved_at, approved_by
+                FROM users
+                WHERE status = ?
+                ORDER BY requested_at DESC
+                LIMIT ?
+                """,
+                (status, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT user_id, first_name, username, status, requested_at, approved_at, approved_by
+                FROM users
+                ORDER BY requested_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
 def get_user_status(user_id: int) -> str | None:
     cached = _auth_cache.get(user_id)
     now = time.monotonic()

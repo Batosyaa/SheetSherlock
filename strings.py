@@ -106,6 +106,21 @@ ADMIN_ANOMALY_ALERT = (
     "Последний БИН: `{bin}`"
 )
 
+ADMIN_LISTUSERS_USAGE = "Использование: `/listusers [pending|approved|rejected|revoked]`"
+ADMIN_LISTUSERS_EMPTY = "Пользователи не найдены\\."
+ADMIN_LISTUSERS_TITLE = "*Пользователи* \\({status}\\): `{count}`"
+
+ADMIN_REVOKE_USAGE = "Использование: `/revokeuser <user_id>`"
+ADMIN_REVOKED_NOTIFY = (
+    "🚫 Доступ отозван\\.\n\n"
+    "Пользователь: {first_name} \\({username}\\)\n"
+    "ID: `{user_id}`"
+)
+
+ADMIN_AUDITLOG_USAGE = "Использование: `/auditlog [limit] [user_id]`"
+ADMIN_AUDITLOG_EMPTY = "Журнал аудита пуст\\."
+ADMIN_AUDITLOG_TITLE = "*Последние события аудита*: `{count}`"
+
 # Risk icons
 
 RISK_ICONS = {

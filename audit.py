@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import threading
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from config import ANOMALY_THRESHOLD
 from db import get_connection
@@ -71,6 +72,38 @@ def count_recent_events(
             (user_id, action, _utc_cutoff(minutes)),
         ).fetchone()
         return int(row["event_count"])
+    finally:
+        conn.close()
+
+
+def get_audit_events(limit: int = 20, user_id: int | None = None) -> list[dict[str, Any]]:
+    limit = max(1, min(limit, 100))
+
+    conn = get_connection()
+    try:
+        if user_id is None:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, action, detail, ts
+                FROM audit_log
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, user_id, action, detail, ts
+                FROM audit_log
+                WHERE user_id = ?
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (user_id, limit),
+            ).fetchall()
+
+        return [dict(row) for row in rows]
     finally:
         conn.close()
 
