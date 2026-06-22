@@ -75,7 +75,7 @@ def get_dataframe() -> pd.DataFrame:
             _cache["df"] = _fetch_dataframe()
             _cache["ts"] = now
         
-            return _cache["df"]
+        return _cache["df"]
  
  
 def invalidate_cache() -> None:

@@ -279,3 +279,72 @@ async def cmd_auditlog(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         "\n".join(lines),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
+
+@_admin_only
+async def cmd_pending(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """List pending users and offer re-notification."""
+    users = list_users(status=STATUS_PENDING)
+    if not users:
+        await update.message.reply_text("No pending users\\.", parse_mode=ParseMode.MARKDOWN_V2)
+        return
+
+    lines = [f"*Pending users:* `{len(users)}`\n"]
+    for u in users:
+        lines.append(f"`{u['user_id']}` — {strings.escape(u.get('first_name') or 'Unknown')}")
+
+    await update.message.reply_text(
+        "\n".join(lines), parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+@_admin_only
+async def cmd_approveuser(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if len(context.args) != 1:
+        await update.message.reply_text(
+            "Использование: `/approveuser <user_id>`",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    target_id = _parse_int(context.args[0])
+    if target_id is None:
+        await update.message.reply_text(
+            "Использование: `/approveuser <user_id>`",
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    target = get_user(target_id)
+    if target is None:
+        await update.message.reply_text(
+            strings.ADMIN_USER_NOT_FOUND,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    if not approve_user(target_id, admin_id=update.effective_user.id):
+        await update.message.reply_text(
+            strings.ADMIN_USER_NOT_FOUND,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+        return
+
+    log_event(target_id, STATUS_APPROVED, detail=f"admin:{update.effective_user.id}")
+    first_name, username = _format_user(target)
+
+    try:
+        await context.bot.send_message(
+            chat_id=target_id,
+            text=strings.AUTH_APPROVED_USER,
+            parse_mode=ParseMode.MARKDOWN_V2,
+        )
+    except Exception:
+        logger.exception("Failed to notify user_id=%s about approval.", target_id)
+
+    await update.message.reply_text(
+        strings.ADMIN_APPROVED_NOTIFY.format(
+            first_name=first_name,
+            username=username,
+            user_id=target_id,
+        ),
+        parse_mode=ParseMode.MARKDOWN_V2,
+    )

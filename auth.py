@@ -206,8 +206,7 @@ def revoke_user(user_id: int, admin_id: int = ADMIN_ID) -> bool:
 # ── Admin notification ────────────────────────────────────────────────────────
 
 async def notify_admin_request(
-    context: ContextTypes.DEFAULT_TYPE, user: User
-) -> None:
+    context: ContextTypes.DEFAULT_TYPE, user: User):
     """
     Send the admin a notification with Approve / Reject buttons.
 
@@ -216,6 +215,13 @@ async def notify_admin_request(
     send the user their confirmation regardless of whether admin ping works.
     """
     first_name, username = _user_display(user)
+    text = strings.ADMIN_NEW_REQUEST.format(
+        first_name=first_name,
+        username=username,
+        user_id=user.id,
+        ts=_utc_now(),
+    )
+    logger.info("Admin notification text: %r", text)
     try:
         await context.bot.send_message(
             chat_id=ADMIN_ID,
@@ -238,8 +244,9 @@ async def notify_admin_request(
     except Exception:
         logger.exception(
             "Could not send admin notification for user_id=%s. "
-            "Make sure ADMIN_ID has started the bot at least once.", user.id
+            "Make sure ADMIN_ID has started the bot at least once.", user.id, ADMIN_ID
         )
+        raise
 
 
 # ── Auth reply helpers ────────────────────────────────────────────────────────

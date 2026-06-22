@@ -113,9 +113,6 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         strings.AUTH_REQUEST_SENT, parse_mode=ParseMode.MARKDOWN_V2
     )
-    await update.message.reply_text(
-        strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2
-    )
 
 
 # ── /help ─────────────────────────────────────────────────────────────────────

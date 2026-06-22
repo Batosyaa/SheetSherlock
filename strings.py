@@ -13,7 +13,7 @@ escape_markdown = escape
 # Telegram bot messages
 
 WELCOME = (
-    "*Monitoring|Check Bot* на связи\\.\n\n"
+    "*Monitoring\|Check Bot* на связи\\.\n\n"
     "Введите *БИН* компании, чтобы получить описание, уровни риска за последние 2 квартала и историю компании\\.\n\n"
     "Пример: `123456789012`"
 )
