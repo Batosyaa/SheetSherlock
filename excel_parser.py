@@ -75,8 +75,7 @@ def get_dataframe() -> pd.DataFrame:
             _cache["df"] = _fetch_dataframe()
             _cache["ts"] = now
         
-        logger.info("Sheet columns list: %s", list(_cache["df"].columns))
-        return _cache["df"]
+            return _cache["df"]
  
  
 def invalidate_cache() -> None:

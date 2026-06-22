@@ -1,11 +1,5 @@
 """
 handlers.py — Telegram command and message handlers.
-
-Fixes applied vs original:
-  1. Rate limiting: every text message and callback checks is_rate_limited()
-     before doing any work.
-  2. Exception handling: SpreadsheetNotFound, APIError, and unexpected errors
-     are caught separately so the log always shows the real cause.
 """
 
 import logging
@@ -14,14 +8,22 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 from gspread.exceptions import APIError, SpreadsheetNotFound
-import pandas as pd
 
 import strings
 from audit import ACTION_QUERY_BIN, check_query_anomaly, log_event
-from auth import require_auth
+from auth import (
+    STATUS_PENDING,
+    STATUS_REJECTED,
+    STATUS_REVOKED,
+    is_approved,
+    get_user_status,
+    notify_admin_request,
+    register_access_request,
+    require_auth,
+)
 from config import ADMIN_ID
 from excel_parser import find_company, get_profile, get_history
-from rate_limiter import is_rate_limited   # FIX 1
+from rate_limiter import is_rate_limited
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +31,7 @@ BIN_LENGTH = 12
 _RATE_LIMITED_MSG = "⏳ Слишком много запросов\\. Подождите немного и попробуйте снова\\."
 
 
-# ── keyboards ────────────────────────────────────────────────────────────────
+# ── keyboards ─────────────────────────────────────────────────────────────────
 
 def _company_keyboard(bin_number: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[
@@ -44,16 +46,17 @@ def _restart_keyboard() -> InlineKeyboardMarkup:
     ]])
 
 
-# ── shared helpers ───────────────────────────────────────────────────────────
+# ── sheet lookup helper ───────────────────────────────────────────────────────
 
 _ERROR = object()
+
 
 async def _sheet_lookup(bin_number: str, context_label: str):
     try:
         return find_company(bin_number)
     except SpreadsheetNotFound:
         logger.error("[%s] Spreadsheet not found. Check SHEET_ID in .env.", context_label)
-        return _ERROR          # ← sentinel, not string
+        return _ERROR
     except APIError as e:
         logger.error("[%s] Google Sheets API error: %s", context_label, e)
         return _ERROR
@@ -62,23 +65,71 @@ async def _sheet_lookup(bin_number: str, context_label: str):
         return _ERROR
 
 
-# ── commands ─────────────────────────────────────────────────────────────────
+# ── /start ────────────────────────────────────────────────────────────────────
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text(strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2)
+    """
+    Entry point for every user.
 
+    Approved / admin  →  WELCOME only.
+    Pending           →  AUTH_ALREADY_PENDING only.
+    Rejected / revoked→  AUTH_DENIED only.
+    New user          →  AUTH_REQUEST_SENT (first) + WELCOME (second),
+                         admin notified with Approve / Reject buttons.
+    """
+    user    = update.effective_user
+    user_id = user.id
+
+    # ── approved or admin ─────────────────────────────────────────────────────
+    if is_approved(user_id):
+        await update.message.reply_text(
+            strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    status = get_user_status(user_id)
+
+    # ── already waiting ───────────────────────────────────────────────────────
+    if status == STATUS_PENDING:
+        await update.message.reply_text(
+            strings.AUTH_REQUEST_SENT, parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # ── explicitly blocked ────────────────────────────────────────────────────
+    if status in (STATUS_REJECTED, STATUS_REVOKED):
+        await update.message.reply_text(
+            strings.AUTH_DENIED, parse_mode=ParseMode.MARKDOWN_V2
+        )
+        return
+
+    # ── new user ──────────────────────────────────────────────────────────────
+    # Register first so the DB row exists before we do anything else.
+    created = register_access_request(user)
+    if created:
+        await notify_admin_request(context, user)
+
+    # Auth message appears above WELCOME so the user understands the context.
+    await update.message.reply_text(
+        strings.AUTH_REQUEST_SENT, parse_mode=ParseMode.MARKDOWN_V2
+    )
+    await update.message.reply_text(
+        strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2
+    )
+
+
+# ── /help ─────────────────────────────────────────────────────────────────────
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(strings.HELP, parse_mode=ParseMode.MARKDOWN_V2)
 
 
-# ── message handler ──────────────────────────────────────────────────────────
+# ── message handler ───────────────────────────────────────────────────────────
 
 @require_auth
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
 
-    # FIX 1: rate-limit check before any processing.
     if is_rate_limited(user_id):
         await update.message.reply_text(
             _RATE_LIMITED_MSG, parse_mode=ParseMode.MARKDOWN_V2
@@ -123,10 +174,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 parse_mode=ParseMode.MARKDOWN_V2,
             )
     except Exception:
-        logger.exception("Failed to audit successful BIN query for user_id=%s.", user_id)
-    
-    description_line = f"📝 {strings.escape(profile['description'])}" if profile["description"] else ""
-    
+        logger.exception(
+            "Failed to audit successful BIN query for user_id=%s.", user_id
+        )
+
+    description_line = (
+        f"📝 {strings.escape(profile['description'])}\n\n"
+        if profile["description"]
+        else ""
+    )
+
     message = strings.PROFILE.format(
         name=strings.escape(profile["name"]),
         bin=profile["bin"],
@@ -143,7 +200,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-# ── callback handler ─────────────────────────────────────────────────────────
+# ── callback handler ──────────────────────────────────────────────────────────
 
 @require_auth
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -152,7 +209,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     user_id = update.effective_user.id
 
-    # FIX 1: rate-limit applies to callbacks too (history button can hit the sheet).
     if is_rate_limited(user_id):
         await query.message.reply_text(
             _RATE_LIMITED_MSG, parse_mode=ParseMode.MARKDOWN_V2
@@ -160,14 +216,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     if query.data == "restart":
-        await query.message.reply_text(strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2)
+        await query.message.reply_text(
+            strings.WELCOME, parse_mode=ParseMode.MARKDOWN_V2
+        )
         return
 
     if query.data.startswith("history:"):
         bin_number = query.data.split(":", 1)[1]
-
-        # FIX 2: same separated handling for callbacks.
-        result = await _sheet_lookup(bin_number, context_label=f"history uid={user_id}")
+        result     = await _sheet_lookup(
+            bin_number, context_label=f"history uid={user_id}"
+        )
 
         if result is _ERROR:
             await query.message.reply_text(
@@ -206,5 +264,3 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             parse_mode=ParseMode.MARKDOWN_V2,
             reply_markup=_restart_keyboard(),
         )
-
-

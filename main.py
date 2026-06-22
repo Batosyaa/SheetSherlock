@@ -19,13 +19,10 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 def main() -> None:
     init_db()
-    
-    if not BOT_TOKEN:
-        raise ValueError("BOT_TOKEN is not set. Check your .env file.")
     
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 

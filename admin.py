@@ -79,6 +79,8 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     if query is None or user is None:
         return
+    
+    await query.answer()
 
     if user.id != ADMIN_ID:
         await query.answer()
@@ -149,7 +151,6 @@ async def handle_admin_callback(update: Update, context: ContextTypes.DEFAULT_TY
         ),
         parse_mode=ParseMode.MARKDOWN_V2,
     )
-    await query.answer()
 
 
 @_admin_only

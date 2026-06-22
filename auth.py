@@ -48,7 +48,6 @@ def invalidate_auth_cache(user_id: int | None = None) -> None:
     if user_id is None:
         _auth_cache.clear()
         return
-
     _auth_cache.pop(user_id, None)
 
 
@@ -57,7 +56,8 @@ def get_user(user_id: int) -> dict[str, Any] | None:
     try:
         row = conn.execute(
             """
-            SELECT user_id, first_name, username, status, requested_at, approved_at, approved_by
+            SELECT user_id, first_name, username, status,
+                   requested_at, approved_at, approved_by
             FROM users
             WHERE user_id = ?
             """,
@@ -74,7 +74,8 @@ def list_users(status: str | None = None, limit: int = 50) -> list[dict[str, Any
         if status:
             rows = conn.execute(
                 """
-                SELECT user_id, first_name, username, status, requested_at, approved_at, approved_by
+                SELECT user_id, first_name, username, status,
+                       requested_at, approved_at, approved_by
                 FROM users
                 WHERE status = ?
                 ORDER BY requested_at DESC
@@ -85,7 +86,8 @@ def list_users(status: str | None = None, limit: int = 50) -> list[dict[str, Any
         else:
             rows = conn.execute(
                 """
-                SELECT user_id, first_name, username, status, requested_at, approved_at, approved_by
+                SELECT user_id, first_name, username, status,
+                       requested_at, approved_at, approved_by
                 FROM users
                 ORDER BY requested_at DESC
                 LIMIT ?
@@ -98,24 +100,37 @@ def list_users(status: str | None = None, limit: int = 50) -> list[dict[str, Any
 
 
 def get_user_status(user_id: int) -> str | None:
+    """
+    Return the user's current status, using the in-memory cache where possible.
+    Returns None if the user is not in the DB at all.
+    """
     cached = _auth_cache.get(user_id)
-    now = time.monotonic()
+    now    = time.monotonic()
     if cached and cached[1] > now:
         return cached[0]
 
-    user = get_user(user_id)
+    user   = get_user(user_id)
     status = user["status"] if user else None
     if status is not None:
         _auth_cache[user_id] = (status, now + AUTH_CACHE_TTL)
     return status
 
 
+def is_approved(user_id: int) -> bool:
+    """
+    Fast check: is this user allowed to use the bot?
+    Admin is always approved without a DB hit.
+    """
+    if user_id == ADMIN_ID:
+        return True
+    return get_user_status(user_id) == STATUS_APPROVED
+
+
 def register_access_request(user: User) -> bool:
     """
-    Add an unknown user as pending.
-
-    Returns True only when a new request was created, so callers can avoid
-    notifying the admin repeatedly for the same pending user.
+    Insert an unknown user as pending.
+    Returns True only when a new row was created — prevents notifying the
+    admin repeatedly for the same pending user.
     """
     with _WRITE_LOCK:
         conn = get_connection()
@@ -129,23 +144,20 @@ def register_access_request(user: User) -> bool:
 
             conn.execute(
                 """
-                INSERT INTO users (user_id, first_name, username, status, requested_at)
+                INSERT INTO users
+                    (user_id, first_name, username, status, requested_at)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                (
-                    user.id,
-                    user.first_name,
-                    user.username,
-                    STATUS_PENDING,
-                    _utc_now(),
-                ),
+                (user.id, user.first_name, user.username, STATUS_PENDING, _utc_now()),
             )
             conn.commit()
             invalidate_auth_cache(user.id)
             return True
         except Exception:
             conn.rollback()
-            logger.exception("Failed to register access request for user_id=%s.", user.id)
+            logger.exception(
+                "Failed to register access request for user_id=%s.", user.id
+            )
             raise
         finally:
             conn.close()
@@ -161,8 +173,8 @@ def set_user_status(user_id: int, status: str, admin_id: int) -> bool:
             cursor = conn.execute(
                 """
                 UPDATE users
-                SET status = ?, approved_at = ?, approved_by = ?
-                WHERE user_id = ?
+                   SET status = ?, approved_at = ?, approved_by = ?
+                 WHERE user_id = ?
                 """,
                 (status, _utc_now(), admin_id, user_id),
             )
@@ -171,7 +183,9 @@ def set_user_status(user_id: int, status: str, admin_id: int) -> bool:
             return cursor.rowcount > 0
         except Exception:
             conn.rollback()
-            logger.exception("Failed to set status=%s for user_id=%s.", status, user_id)
+            logger.exception(
+                "Failed to set status=%s for user_id=%s.", status, user_id
+            )
             raise
         finally:
             conn.close()
@@ -189,33 +203,60 @@ def revoke_user(user_id: int, admin_id: int = ADMIN_ID) -> bool:
     return set_user_status(user_id, STATUS_REVOKED, admin_id)
 
 
+# ── Admin notification ────────────────────────────────────────────────────────
+
+async def notify_admin_request(
+    context: ContextTypes.DEFAULT_TYPE, user: User
+) -> None:
+    """
+    Send the admin a notification with Approve / Reject buttons.
+
+    Public so cmd_start can call it directly.
+    Failures are logged but never re-raised — the caller should always
+    send the user their confirmation regardless of whether admin ping works.
+    """
+    first_name, username = _user_display(user)
+    try:
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=strings.ADMIN_NEW_REQUEST.format(
+                first_name=first_name,
+                username=username,
+                user_id=user.id,
+                ts=_utc_now(),          # inside backticks — must NOT be escaped
+            ),
+            parse_mode=ParseMode.MARKDOWN_V2,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "✅ Одобрить", callback_data=f"admin:approve:{user.id}"
+                ),
+                InlineKeyboardButton(
+                    "❌ Отклонить", callback_data=f"admin:reject:{user.id}"
+                ),
+            ]]),
+        )
+    except Exception:
+        logger.exception(
+            "Could not send admin notification for user_id=%s. "
+            "Make sure ADMIN_ID has started the bot at least once.", user.id
+        )
+
+
+# ── Auth reply helpers ────────────────────────────────────────────────────────
+
 async def _send_auth_reply(update: Update, text: str) -> None:
+    """Send a reply that works for both message and callback-query updates."""
     if update.callback_query:
         await update.callback_query.answer()
-        await update.callback_query.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
+        await update.callback_query.message.reply_text(
+            text, parse_mode=ParseMode.MARKDOWN_V2
+        )
         return
-
     if update.message:
         await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN_V2)
 
 
-async def _notify_admin(context: ContextTypes.DEFAULT_TYPE, user: User) -> None:
-    first_name, username = _user_display(user)
-    await context.bot.send_message(
-        chat_id=ADMIN_ID,
-        text=strings.ADMIN_NEW_REQUEST.format(
-            first_name=first_name,
-            username=username,
-            user_id=user.id,
-            ts=strings.escape(_utc_now()),
-        ),
-        parse_mode=ParseMode.MARKDOWN_V2,
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton("Approve", callback_data=f"admin:approve:{user.id}"),
-            InlineKeyboardButton("Reject", callback_data=f"admin:reject:{user.id}"),
-        ]]),
-    )
-
+# ── require_auth decorator ────────────────────────────────────────────────────
 
 def require_auth(
     handler: Callable[[Update, ContextTypes.DEFAULT_TYPE], Awaitable[None]]
@@ -227,13 +268,10 @@ def require_auth(
             logger.warning("Blocked update without effective_user.")
             return
 
-        if user.id == ADMIN_ID:
+        if is_approved(user.id):
             return await handler(update, context)
 
         status = get_user_status(user.id)
-
-        if status == STATUS_APPROVED:
-            return await handler(update, context)
 
         if status == STATUS_PENDING:
             await _send_auth_reply(update, strings.AUTH_ALREADY_PENDING)
@@ -243,9 +281,10 @@ def require_auth(
             await _send_auth_reply(update, strings.AUTH_DENIED)
             return
 
+        # No record — user bypassed /start entirely; register and notify.
         created = register_access_request(user)
         if created:
-            await _notify_admin(context, user)
+            await notify_admin_request(context, user)
 
         await _send_auth_reply(update, strings.AUTH_REQUEST_SENT)
 
